@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add void pointers to the DNS-SD callback for AOT builds
+- The completion callback and DnsServiceFreeInstance take void pointers; the struct is read through cast()
+- An AOT build for another platform crashed on win32's DNS_SERVICE_INSTANCE in the callback signature
+- Add test/aot/aot_compile_test.dart: dart compile exe of the backend and the lazy advertiser
+
 ## 0.1.1 - 2026-10-12
 
 ### Added

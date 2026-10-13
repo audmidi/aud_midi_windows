@@ -22,6 +22,9 @@ import 'windows_dns_sd_api.dart';
 /// [release]. The completion callback is a `NativeCallable.listener`, so it
 /// runs later in this isolate; the instance Windows hands to it stays valid
 /// until `DnsServiceFreeInstance`.
+///
+/// The native signatures of the callback and of `DnsServiceFreeInstance`
+/// take the instance as `Pointer<Void>`, see [_RegisterComplete].
 final class WindowsDnsSdFfiApi implements WindowsDnsSdApi {
   /// Creates the binding; nothing native happens before [listen].
   WindowsDnsSdFfiApi();
@@ -32,9 +35,7 @@ final class WindowsDnsSdFfiApi implements WindowsDnsSdApi {
     void Function(int id, int status, String? instanceName) onCompleted,
   ) {
     _onCompleted = onCompleted;
-    _callable ??= NativeCallable<PDNS_SERVICE_REGISTER_COMPLETE>.listener(
-      _complete,
-    );
+    _callable ??= NativeCallable<_RegisterComplete>.listener(_complete);
   }
 
   @override
@@ -113,11 +114,16 @@ final class WindowsDnsSdFfiApi implements WindowsDnsSdApi {
   // DNS_QUERY_REQUEST_VERSION1 of windns.h.
   static const int _requestVersion1 = 1;
 
-  static final void Function(Pointer<DNS_SERVICE_INSTANCE>) _freeInstance =
+  // DnsServiceFreeInstance with the instance as a void pointer, see
+  // [_RegisterComplete].
+  static final void Function(Pointer<Void>) _freeInstanceNative =
       DynamicLibrary.open('dnsapi.dll').lookupFunction<
-        Void Function(Pointer<DNS_SERVICE_INSTANCE>),
-        void Function(Pointer<DNS_SERVICE_INSTANCE>)
+        Void Function(Pointer<Void>),
+        void Function(Pointer<Void>)
       >('DnsServiceFreeInstance');
+
+  static void _freeInstance(Pointer<DNS_SERVICE_INSTANCE> instance) =>
+      _freeInstanceNative(instance.cast());
 
   Pointer<DNS_SERVICE_REGISTER_REQUEST> _request(
     int id,
@@ -128,17 +134,15 @@ final class WindowsDnsSdFfiApi implements WindowsDnsSdApi {
       ..Version = _requestVersion1
       ..InterfaceIndex = 0
       ..pServiceInstance = instance
-      ..pRegisterCompletionCallback = _callable!.nativeFunction
+      // The same native signature as PDNS_SERVICE_REGISTER_COMPLETE.
+      ..pRegisterCompletionCallback = _callable!.nativeFunction.cast()
       ..pQueryContext = Pointer.fromAddress(id)
       ..unicastEnabled = false;
     return request;
   }
 
-  void _complete(
-    int status,
-    Pointer<NativeType> context,
-    Pointer<DNS_SERVICE_INSTANCE> instance,
-  ) {
+  void _complete(int status, Pointer<Void> context, Pointer<Void> raw) {
+    final Pointer<DNS_SERVICE_INSTANCE> instance = raw.cast();
     final id = context.address;
     final name = instance == nullptr
         ? null
@@ -156,7 +160,7 @@ final class WindowsDnsSdFfiApi implements WindowsDnsSdApi {
     _onCompleted?.call(id, status, name);
   }
 
-  NativeCallable<PDNS_SERVICE_REGISTER_COMPLETE>? _callable;
+  NativeCallable<_RegisterComplete>? _callable;
   void Function(int id, int status, String? instanceName)? _onCompleted;
   final Map<int, _Memory> _memory = {};
 }
@@ -173,3 +177,18 @@ final class _Memory {
   Pointer<DNS_SERVICE_INSTANCE> registered = nullptr;
   bool deregistering = false;
 }
+
+// #############################################################################
+/// The completion callback of `DnsServiceRegister` and
+/// `DnsServiceDeRegister`: win32's `PDNS_SERVICE_REGISTER_COMPLETE` with the
+/// context and the instance as void pointers.
+///
+/// Apps of the aud_midi family build release snapshots for Android, iOS,
+/// macOS and Linux that contain this binding. When the advertiser is only
+/// torn off there, never called, the AOT compiler of Dart 3.13 drops the
+/// struct class `DNS_SERVICE_INSTANCE` but keeps a native signature that
+/// names it, and the snapshot fails with "Class with illegal cid". Native
+/// signatures without the struct avoid that; the struct is read through
+/// `cast()` in Dart code only. test/aot/aot_compile_test.dart guards it.
+typedef _RegisterComplete =
+    Void Function(Uint32 status, Pointer<Void> context, Pointer<Void> instance);
