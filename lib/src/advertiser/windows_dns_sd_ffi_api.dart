@@ -22,9 +22,6 @@ import 'windows_dns_sd_api.dart';
 /// [release]. The completion callback is a `NativeCallable.listener`, so it
 /// runs later in this isolate; the instance Windows hands to it stays valid
 /// until `DnsServiceFreeInstance`.
-///
-/// The native signatures of the callback and of `DnsServiceFreeInstance`
-/// take the instance as `Pointer<Void>`, see [_RegisterComplete].
 final class WindowsDnsSdFfiApi implements WindowsDnsSdApi {
   /// Creates the binding; nothing native happens before [listen].
   WindowsDnsSdFfiApi();

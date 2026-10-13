@@ -14,18 +14,15 @@ void main() {
     // release builds for every platform, see test/fixtures/aot/main.dart.
     test('compiles ahead of time where it does not run', () async {
       final out = await Directory.systemTemp.createTemp('aud_aot_');
-      try {
-        final result = await Process.run(Platform.resolvedExecutable, [
-          'compile',
-          'exe',
-          '-o',
-          '${out.path}/main.exe',
-          'test/fixtures/aot/main.dart',
-        ]);
-        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-      } finally {
-        await out.delete(recursive: true);
-      }
+      addTearDown(() => out.delete(recursive: true));
+      final result = await Process.run(Platform.resolvedExecutable, [
+        'compile',
+        'exe',
+        '-o',
+        '${out.path}/main.exe',
+        'test/fixtures/aot/main.dart',
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
     }, timeout: const Timeout(Duration(minutes: 3)));
   });
 }

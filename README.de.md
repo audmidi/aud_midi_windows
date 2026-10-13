@@ -66,6 +66,7 @@ Wie es geprüft ist:
 | Byteformat C++ ↔ Dart | Golden-Dateien schreibt der C++-Test, die Dart-Tests dekodieren sie; die Spezifikation virtueller Geräte umgekehrt |
 | WinRT-Shim | kompiliert mit `-Wall -Wextra -Wconversion -Werror` gegen Ersatz-Header der benutzten Projektion (findet Fehler im Shim, keine API-Abweichungen) |
 | Hook | baut nichts für macOS, Linux, Android und iOS |
+| AOT-Kompilierung (`test/aot/aot_compile_test.dart`) | `dart compile exe` des Backends und eines erst bei Bedarf erzeugten Advertisers gelingt; schützt Release-Builds für andere Plattformen vor „Class with illegal cid“ |
 
 Nicht geprüft: der Shim gegen das echte Windows SDK und die
 C++/WinRT-Header, jeder native Aufruf (FFI-Schicht

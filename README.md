@@ -61,6 +61,7 @@ How it is verified:
 | Byte format C++ ↔ Dart | golden files written by the C++ test, decoded by the Dart tests; the virtual device spec the other way round |
 | WinRT shim | compiles with `-Wall -Wextra -Wconversion -Werror` against stand-in headers of the used projection surface (catches errors inside the shim, not API mismatches) |
 | Hook | builds nothing for macOS, Linux, Android and iOS |
+| AOT compile (`test/aot/aot_compile_test.dart`) | `dart compile exe` of the backend and a lazily created advertiser succeeds; guards release builds for other platforms against "Class with illegal cid" |
 
 Not verified: the shim against the real Windows SDK and C++/WinRT
 headers, every native call (FFI glue `lib/src/shim/windows_midi_ffi_shim.dart`,

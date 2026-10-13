@@ -8,6 +8,11 @@
 - The completion callback and DnsServiceFreeInstance take void pointers; the struct is read through cast()
 - An AOT build for another platform crashed on win32's DNS_SERVICE_INSTANCE in the callback signature
 - Add test/aot/aot_compile_test.dart: dart compile exe of the backend and the lazy advertiser
+- Add the AOT regression test to the README
+- README.md and README.de.md list test/aot/aot_compile_test.dart in the verification table
+- aot_compile_test.dart releases the temp directory with addTearDown instead of try/finally
+- The AOT fixture keeps the create function private, after the methods, and documents the constructor
+- Drop the repeated void pointer note from the WindowsDnsSdFfiApi class doc; the binding comments keep it
 
 ## 0.1.1 - 2026-10-12
 

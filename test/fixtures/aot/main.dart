@@ -29,22 +29,23 @@ void main() {
 // #############################################################################
 /// Creates the advertiser at the first registration, as aud_midi does.
 final class _LazyAdvertiser implements MidiServiceAdvertiser {
-  _LazyAdvertiser(this.create);
+  /// Wraps the advertiser that [_create] returns.
+  _LazyAdvertiser(this._create);
 
-  final MidiServiceAdvertiser Function() create;
-
+  // ...........................................................................
   @override
   Future<MidiServiceRegistration> register({
     required String name,
     required String type,
     required int port,
     Map<String, String> txt = const {},
-  }) => (_advertiser ??= create()).register(
+  }) => (_advertiser ??= _create()).register(
     name: name,
     type: type,
     port: port,
     txt: txt,
   );
 
+  final MidiServiceAdvertiser Function() _create;
   MidiServiceAdvertiser? _advertiser;
 }
