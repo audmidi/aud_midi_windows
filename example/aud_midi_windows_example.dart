@@ -15,42 +15,61 @@ import 'package:aud_midi_windows/aud_midi_windows.dart';
 Future<void> main() async {
   final backend = WindowsMidiBackend();
   await backend.start(_PrintingHost());
-  print(backend.capabilities);
+  try {
+    print(backend.capabilities);
+    await _openInputs(backend);
+    await _playNote(backend);
+    // Prints what arrives on the inputs for a while.
+    await Future<void>.delayed(const Duration(seconds: 1));
+  } finally {
+    await backend.stop();
+  }
+}
 
-  for (final port in backend.ports) {
+/// Prints every port of [backend] and opens the inputs side by side.
+Future<void> _openInputs(MidiBackend backend) async {
+  final ports = backend.ports;
+  for (final port in ports) {
     print(
       '${port.id} ${port.direction.name} ${port.name} '
       '(${port.transport.name}, ${port.protocol.name}, ${port.state.name})',
     );
-    if (port.isInput) await backend.openPort(port.id);
   }
-
-  final virtualPorts = backend.virtualPorts;
-  if (virtualPorts != null) {
-    final source = await virtualPorts.create(
-      MidiVirtualPortSpec(
-        name: 'aud_midi_windows example',
-        direction: MidiDirection.output,
-        protocol: MidiProtocol.midi2,
-      ),
-    );
-    // MIDI 2.0 Note On and Note Off of middle C on group 0, channel 0.
-    const clock = MidiSystemClock();
-    await backend.send(
-      source.id,
-      MidiUmpPacket(words: const [0x40903c00, 0xc8000000], time: clock.now()),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-    await backend.send(
-      source.id,
-      MidiUmpPacket(words: const [0x40803c00, 0x00000000], time: clock.now()),
-    );
-  }
-
-  await Future<void>.delayed(const Duration(seconds: 1));
-  await backend.stop();
+  await Future.wait([
+    for (final port in ports)
+      if (port.isInput) backend.openPort(port.id),
+  ]);
 }
 
+/// Plays middle C on group 0, channel 0 of a new virtual MIDI 2.0 port;
+/// does nothing when [backend] offers no virtual ports.
+Future<void> _playNote(MidiBackend backend) async {
+  final virtualPorts = backend.virtualPorts;
+  if (virtualPorts == null) return;
+  final source = await virtualPorts.create(
+    MidiVirtualPortSpec(
+      name: 'aud_midi_windows example',
+      direction: MidiDirection.output,
+      protocol: MidiProtocol.midi2,
+    ),
+  );
+  const clock = MidiSystemClock();
+  Future<void> send(MidiMessage message) => backend.send(
+    source.id,
+    MidiUmpPacket(
+      words: UmpEncoder.encode(message).expand((ump) => ump.words),
+      time: clock.now(),
+    ),
+  );
+
+  const note = MidiNoteNumbers.c4;
+  await send(const MidiNoteOn2(channel: 0, note: note, velocity: 0xc800));
+  await Future<void>.delayed(const Duration(milliseconds: 500));
+  await send(const MidiNoteOff2(channel: 0, note: note));
+}
+
+// #############################################################################
+/// Prints what the backend reports.
 final class _PrintingHost implements MidiBackendHost {
   @override
   final MidiClock clock = const MidiSystemClock();

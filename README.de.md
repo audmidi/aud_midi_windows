@@ -66,7 +66,7 @@ Wie es geprüft ist:
 | Byteformat C++ ↔ Dart | Golden-Dateien schreibt der C++-Test, die Dart-Tests dekodieren sie; die Spezifikation virtueller Geräte umgekehrt |
 | WinRT-Shim | kompiliert mit `-Wall -Wextra -Wconversion -Werror` gegen Ersatz-Header der benutzten Projektion (findet Fehler im Shim, keine API-Abweichungen) |
 | Hook | baut nichts für macOS, Linux, Android und iOS |
-| AOT-Kompilierung (`test/aot/aot_compile_test.dart`) | `dart compile exe` des Backends und eines erst bei Bedarf erzeugten Advertisers gelingt; schützt Release-Builds für andere Plattformen vor „Class with illegal cid“ |
+| AOT-Kompilierung (`test/aot/aot_compile_test.dart`) | `dart compile aot-snapshot` des Backends und eines erst bei Bedarf erzeugten Advertisers gelingt; schützt Release-Builds für andere Plattformen vor „Class with illegal cid“ |
 
 Nicht geprüft: der Shim gegen das echte Windows SDK und die
 C++/WinRT-Header, jeder native Aufruf (FFI-Schicht
@@ -155,9 +155,66 @@ Siehe den Plan in [aud_midi_pm](https://github.com/audmidi/aud_midi_pm/blob/main
 dart pub add aud_midi_windows
 ```
 
-`example/aud_midi_windows_example.dart` listet die Ports, öffnet jeden
-Eingang und spielt, wo Windows MIDI Services virtuelle Geräte anbietet, eine
-Note auf einem virtuellen Port; es läuft unter Windows.
+## Code-Beispiele
+
+Jeden Eingang öffnen und, wo Windows MIDI Services virtuelle Geräte anbietet,
+eine MIDI-2.0-Note auf einem virtuellen Port spielen; läuft unter Windows:
+
+```dart
+import 'package:aud_midi_core/aud_midi_core.dart';
+import 'package:aud_midi_standard/aud_midi_standard.dart';
+import 'package:aud_midi_windows/aud_midi_windows.dart';
+
+Future<void> main() async {
+  final backend = WindowsMidiBackend();
+  await backend.start(_PrintingHost());
+
+  await Future.wait([
+    for (final port in backend.ports)
+      if (port.isInput) backend.openPort(port.id),
+  ]);
+
+  final source = await backend.virtualPorts?.create(
+    MidiVirtualPortSpec(
+      name: 'aud_midi_windows example',
+      direction: MidiDirection.output,
+      protocol: MidiProtocol.midi2,
+    ),
+  );
+  if (source != null) {
+    const noteOn = MidiNoteOn2(
+      channel: 0,
+      note: MidiNoteNumbers.c4,
+      velocity: 0xc800,
+    );
+    await backend.send(
+      source.id,
+      MidiUmpPacket(
+        words: UmpEncoder.encode(noteOn).expand((ump) => ump.words),
+        time: const MidiSystemClock().now(),
+      ),
+    );
+  }
+  await backend.stop();
+}
+
+final class _PrintingHost implements MidiBackendHost {
+  @override
+  final MidiClock clock = const MidiSystemClock();
+
+  @override
+  void portsChanged(List<MidiPortEvent> events) => events.forEach(print);
+
+  @override
+  void received(MidiPortId port, MidiPacket packet) => print('$port $packet');
+
+  @override
+  void diagnostic(MidiDiagnostic diagnostic) => print(diagnostic);
+}
+```
+
+Das vollständige Beispiel, das auch die Ports ausgibt, steht in
+[example/aud_midi_windows_example.dart](example/aud_midi_windows_example.dart).
 
 ## Funktionsweise
 
