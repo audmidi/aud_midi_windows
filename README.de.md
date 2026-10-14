@@ -155,6 +155,10 @@ Siehe den Plan in [aud_midi_pm](https://github.com/audmidi/aud_midi_pm/blob/main
 dart pub add aud_midi_windows
 ```
 
+`example/aud_midi_windows_example.dart` listet die Ports, öffnet jeden
+Eingang und spielt, wo Windows MIDI Services virtuelle Geräte anbietet, eine
+Note auf einem virtuellen Port; es läuft unter Windows.
+
 ## Funktionsweise
 
 - `src/aud_midi_windows.h`: eine schlichte C-API mit opaken Handles;

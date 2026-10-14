@@ -13,6 +13,10 @@
 - aot_compile_test.dart releases the temp directory with addTearDown instead of try/finally
 - The AOT fixture keeps the create function private, after the methods, and documents the constructor
 - Drop the repeated void pointer note from the WindowsDnsSdFfiApi class doc; the binding comments keep it
+- Add an example of the Windows backend
+- example/aud_midi_windows_example.dart lists the ports, opens the inputs and plays a note on a virtual port
+- pana: 160 of 160 points; the example was the missing part
+- Point to the example in README.md and README.de.md
 
 ## 0.1.1 - 2026-10-12
 
