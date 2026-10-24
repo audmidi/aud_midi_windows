@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 - 2026-10-24
+
+### Changed
+
+- Skip the shim build test where cmd cannot find vcvars
+
 ## 0.1.2 - 2026-10-14
 
 ### Added
