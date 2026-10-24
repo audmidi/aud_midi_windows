@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Skip the shim build test where cmd cannot find vcvars
+
+native_toolchain_c starts vcvars64.bat by its bare name, which cmd refuses while NoDefaultCurrentDirectoryInExePath is set, as in the Claude app's terminals
+Raise helix to ^1.13.0
+
 ## 0.1.2 - 2026-10-14
 
 ### Added
