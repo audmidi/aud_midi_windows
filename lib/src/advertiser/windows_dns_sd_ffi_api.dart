@@ -187,5 +187,8 @@ final class _Memory {
 /// names it, and the snapshot fails with "Class with illegal cid". Native
 /// signatures without the struct avoid that; the struct is read through
 /// `cast()` in Dart code only. test/aot/aot_compile_test.dart guards it.
-typedef _RegisterComplete =
-    Void Function(Uint32 status, Pointer<Void> context, Pointer<Void> instance);
+typedef _RegisterComplete = Void Function(
+  Uint32 status,
+  Pointer<Void> context,
+  Pointer<Void> instance,
+);

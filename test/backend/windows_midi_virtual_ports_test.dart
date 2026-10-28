@@ -75,17 +75,17 @@ void main() {
   group('WindowsMidiVirtualPorts', () {
     group('encode(spec, productInstanceId)', () {
       test('matches the specification the native shim parses', () {
-        final golden = File(
-          'test/goldens/virtual_device_spec.hex',
-        ).readAsLinesSync().where((line) => !line.startsWith('#')).single;
+        final golden = File('test/goldens/virtual_device_spec.hex')
+            .readAsLinesSync()
+            .where((line) => !line.startsWith('#'))
+            .single;
         final encoded = WindowsMidiVirtualPorts.encode(
           spec,
           productInstanceId: 'aud_midi-42',
         );
         expect(
-          [
-            for (final byte in encoded) byte.toRadixString(16).padLeft(2, '0'),
-          ].join(),
+          [for (final byte in encoded) byte.toRadixString(16).padLeft(2, '0')]
+              .join(),
           golden,
         );
       });

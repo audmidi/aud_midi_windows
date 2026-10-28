@@ -1,12 +1,23 @@
 # aud_midi_windows
 
-Das Windows-Backend von aud_midi: Windows.Devices.Midi und, falls
+[English](README.md) | Deutsch
+
+Windows-Backend für aud_midi: Windows.Devices.Midi und Windows MIDI
+Services. Das Windows-Backend von aud_midi: Windows.Devices.Midi und, falls
 vorhanden, Windows MIDI Services über einen C++/WinRT-Shim,
 Bluetooth-LE-MIDI-Pairing und DNS-SD-Advertising für Netzwerk-Sessions.
+Läuft nur unter Windows.
 
 Teil der aud_midi-Familie, siehe [aud_midi](https://github.com/audmidi/aud_midi).
 
-## Ziele
+## Motivation
+
+Dart- und Flutter-Apps sollen die MIDI-Geräte ihrer Nutzer auf jeder
+Plattform über eine API erreichen, ohne eigene Platform-Channels oder
+nativen Code. Dieses Paket holt Windows in diese Familie: die
+WinRT-MIDI-APIs hinter demselben `MidiBackend` wie die anderen
+Plattformen, mit dem nativen Teil als kleinem Shim, den die App nie
+anfassen muss und der nie einen UI-Thread blockiert.
 
 - Windows.Devices.Midi-Ports mit Empfangszeitstempeln und
   DeviceWatcher-Hotplug
@@ -17,13 +28,173 @@ Teil der aud_midi-Familie, siehe [aud_midi](https://github.com/audmidi/aud_midi)
 - Advertising über DnsServiceRegister
 - BLE-Peripheral über GattServiceProvider
 
-## Stand
+## Installation
 
-Implementiert; in diesem Ticket **noch nicht auf Windows gebaut oder
-ausgeführt**. Die gesamte Dart-Logik ist auf der Dart-VM getestet, der
-portable Teil des Shims auf macOS; der WinRT-Teil ist gegen die Referenz
-des Windows SDK und die IDL von Windows MIDI Services geprüft, aber nie
-gegen die echten Header kompiliert.
+```bash
+dart pub add aud_midi_windows
+```
+
+### Bauen unter Windows
+
+Braucht Windows 10 1607+ (DNS-SD-Advertising 1903+) und Visual Studio
+2022 oder dessen Build Tools mit „Desktopentwicklung mit C++“ und einem
+Windows 11 SDK; native_toolchain_c findet `cl.exe` über vswhere. Der Hook
+kompiliert `src/aud_midi_windows.cpp` (C++20, `/EHsc`, `WindowsApp.lib`)
+zum Code-Asset `package:aud_midi_windows/aud_midi_windows_shim`.
+
+### Windows MIDI Services einschalten
+
+Der Midi2-Pfad wird nur mit `AUD_MIDI_WITH_MIDI2` kompiliert, weil die
+Projektion von `Windows.Devices.Midi2` aus NuGet kommt, nicht aus dem
+Windows SDK:
+
+1. Die NuGet-Pakete `Windows.Devices.Midi2` (winmd) und
+   `Microsoft.Windows.CppWinRT` 3.x (`cppwinrt.exe`) holen.
+2. Die Projektion samt dem referenzierten Windows SDK aus dem entpackten
+   Paket `Windows.Devices.Midi2` erzeugen:
+
+   ```powershell
+   cppwinrt -input Windows.Devices.Midi2\ref\native\Windows.Devices.Midi2.winmd `
+     -reference sdk -output third_party\midi2
+   ```
+
+3. In der `pubspec.yaml` der App einschalten:
+
+   ```yaml
+   hooks:
+     user_defines:
+       aud_midi_windows:
+         midi2: true
+         midi2_include: third_party/midi2
+   ```
+
+Zur Laufzeit fragt der Shim `MidiApi` (`try_get_activation_factory`),
+`EnsureServiceAvailable` und den API-Modus ab; ohne sie meldet er nur
+Byte-Ports. Wo die API noch nicht zu Windows gehört, muss
+`Windows.Devices.Midi2.dll` des Pakets (`runtimes\win-<arch>\native`)
+neben der ausführbaren Datei liegen. Windows MIDI Services vor dem
+Release vom November 2026 kann beim Abbau eines virtuellen Geräts hängen
+(microsoft/MIDI#1047).
+
+### Berechtigungen und Paketierung
+
+- Unpaketierte Apps brauchen nichts.
+- MSIX: `<DeviceCapability Name="bluetooth" />` für BLE-MIDI sowie
+  `<Capability Name="internetClient" />` und
+  `<Capability Name="privateNetworkClientServer" />` für
+  Netzwerk-Sessions; die Firewall fragt beim ersten Mal nach UDP
+  5004/5005.
+
+## Verwendung
+
+Die Windows-MIDI-Ports auflisten, jeden Eingang öffnen und, wo Windows
+MIDI Services virtuelle Geräte anbietet, eine MIDI-2.0-Note auf einem
+virtuellen Port spielen; läuft unter Windows:
+
+```dart
+import 'package:aud_midi_core/aud_midi_core.dart';
+import 'package:aud_midi_standard/aud_midi_standard.dart';
+import 'package:aud_midi_windows/aud_midi_windows.dart';
+
+// Lists the Windows MIDI ports, opens all inputs and, where Windows MIDI
+// Services offers virtual devices, plays a MIDI 2.0 note on a virtual port
+// that other apps can listen to. In apps, the engine of aud_midi_core hosts
+// the backend; this host just prints. Runs on Windows only.
+Future<void> main() async {
+  final backend = WindowsMidiBackend();
+  await backend.start(_PrintingHost());
+  try {
+    print(backend.capabilities);
+    await _openInputs(backend);
+    await _playNote(backend);
+    // Prints what arrives on the inputs for a while.
+    await Future<void>.delayed(const Duration(seconds: 1));
+  } finally {
+    await backend.stop();
+  }
+}
+
+/// Prints every port of [backend] and opens the inputs side by side.
+Future<void> _openInputs(MidiBackend backend) async {
+  final ports = backend.ports;
+  for (final port in ports) {
+    print(
+      '${port.id} ${port.direction.name} ${port.name} '
+      '(${port.transport.name}, ${port.protocol.name}, ${port.state.name})',
+    );
+  }
+  await Future.wait([
+    for (final port in ports)
+      if (port.isInput) backend.openPort(port.id),
+  ]);
+}
+
+/// Plays middle C on group 0, channel 0 of a new virtual MIDI 2.0 port;
+/// does nothing when [backend] offers no virtual ports.
+Future<void> _playNote(MidiBackend backend) async {
+  final virtualPorts = backend.virtualPorts;
+  if (virtualPorts == null) return;
+  final source = await virtualPorts.create(
+    MidiVirtualPortSpec(
+      name: 'aud_midi_windows example',
+      direction: MidiDirection.output,
+      protocol: MidiProtocol.midi2,
+    ),
+  );
+  const clock = MidiSystemClock();
+  Future<void> send(MidiMessage message) => backend.send(
+    source.id,
+    MidiUmpPacket(
+      words: UmpEncoder.encode(message).expand((ump) => ump.words),
+      time: clock.now(),
+    ),
+  );
+
+  const note = MidiNoteNumbers.c4;
+  await send(const MidiNoteOn2(channel: 0, note: note, velocity: 0xc800));
+  await Future<void>.delayed(const Duration(milliseconds: 500));
+  await send(const MidiNoteOff2(channel: 0, note: note));
+}
+
+// #############################################################################
+/// Prints what the backend reports.
+final class _PrintingHost implements MidiBackendHost {
+  @override
+  final MidiClock clock = const MidiSystemClock();
+
+  @override
+  void portsChanged(List<MidiPortEvent> events) => events.forEach(print);
+
+  @override
+  void received(MidiPortId port, MidiPacket packet) => print('$port $packet');
+
+  @override
+  void diagnostic(MidiDiagnostic diagnostic) => print(diagnostic);
+}
+```
+
+## Einschränkungen
+
+- Läuft nur unter Windows; der Hook baut nichts für macOS, Linux, Android
+  und iOS.
+- Ohne Windows MIDI Services (nicht eingebaut, nicht vorhanden oder im
+  Legacy-Modus) meldet das Backend nur Byte-Ports und `virtualPorts` ist
+  `null`; WinRT-MIDI-1.0-Ausgänge senden sofort, die Engine plant in
+  Software.
+- Nicht geprüft: der Shim gegen das echte Windows SDK und die
+  C++/WinRT-Header, jeder native Aufruf (FFI-Schicht
+  `lib/src/shim/windows_midi_ffi_shim.dart`,
+  `lib/src/advertiser/windows_dns_sd_ffi_api.dart`, beide von der
+  Abdeckung ausgenommen), echte Geräte, BLE-Pairing, der Midi2-Pfad und
+  der Hook-Build mit MSVC. Die Windows-Tests unter Mitwirken decken sie
+  ab.
+
+## Dokumentation
+
+- [Guides](doc/guides/)
+- Der Plan in [aud_midi_pm](https://github.com/audmidi/aud_midi_pm/blob/main/doc/2026-Q4/tickets/2026-10-06-aud_midi_01-initial-midi-implementation.md)
+
+## Funktionsweise
 
 - `WindowsMidiBackend` (`MidiBackend`, Name `winrt`) mit
   `WindowsMidiApi.auto` (Standard), `midi1` oder `midi2`:
@@ -57,166 +228,7 @@ gegen die echten Header kompiliert.
   `package:win32`, Abschluss über `NativeCallable.listener`.
 - `WindowsMidiFakeShim`: simuliert den Shim für Tests von Apps.
 
-Wie es geprüft ist:
-
-| Prüfung | Ergebnis |
-| --- | --- |
-| Dart-Unit-Tests, macOS-VM | 100 % Zeilenabdeckung je Datei aus ihrem eigenen Test |
-| Portabler Shim-Kern (`tool/test_native_core.sh`) | Ringpuffer, Event-Queue, Callback-Gate, Worker, BLE-Filter, Uhr-Rechnung, MIDI-Zerlegung; ASan/UBSan und TSan sauber |
-| Byteformat C++ ↔ Dart | Golden-Dateien schreibt der C++-Test, die Dart-Tests dekodieren sie; die Spezifikation virtueller Geräte umgekehrt |
-| WinRT-Shim | kompiliert mit `-Wall -Wextra -Wconversion -Werror` gegen Ersatz-Header der benutzten Projektion (findet Fehler im Shim, keine API-Abweichungen) |
-| Hook | baut nichts für macOS, Linux, Android und iOS |
-| AOT-Kompilierung (`test/aot/aot_compile_test.dart`) | `dart compile aot-snapshot` des Backends und eines erst bei Bedarf erzeugten Advertisers gelingt; schützt Release-Builds für andere Plattformen vor „Class with illegal cid“ |
-
-Nicht geprüft: der Shim gegen das echte Windows SDK und die
-C++/WinRT-Header, jeder native Aufruf (FFI-Schicht
-`lib/src/shim/windows_midi_ffi_shim.dart`,
-`lib/src/advertiser/windows_dns_sd_ffi_api.dart`, beide von der Abdeckung
-ausgenommen), echte Geräte, BLE-Pairing, der Midi2-Pfad und der
-Hook-Build mit MSVC. Die Windows-Tests unten decken sie ab.
-
-### Bauen und testen auf Windows
-
-Braucht Windows 10 1607+ (DNS-SD-Advertising 1903+) und Visual Studio
-2022 oder dessen Build Tools mit „Desktopentwicklung mit C++“ und einem
-Windows 11 SDK; native_toolchain_c findet `cl.exe` über vswhere. Dann:
-
-```powershell
-dart test
-```
-
-Der Hook kompiliert `src/aud_midi_windows.cpp` (C++20, `/EHsc`,
-`WindowsApp.lib`) zum Code-Asset
-`package:aud_midi_windows/aud_midi_windows_shim`. Tests nur für Windows:
-
-- `test/shim/windows_midi_ffi_shim_test.dart`: Kontext, Uhr, jeder Port
-  geöffnet und geschlossen, UMP-Loopback über die Diagnose-Loopback-
-  Endpoints (Midi2), Byte-Loopback über einen Treiber wie loopMIDI, eine
-  Note auf dem Microsoft GS Wavetable Synth (Smoke-Test).
-- `test/advertiser/windows_dns_sd_ffi_api_test.dart`: registriert und
-  entfernt `_apple-midi._udp`- und `_midi2._udp`-Dienste.
-- `test/hook/build_test.dart`: der Hook liefert den Shim.
-
-### Windows MIDI Services einschalten
-
-Der Midi2-Pfad wird nur mit `AUD_MIDI_WITH_MIDI2` kompiliert, weil die
-Projektion von `Windows.Devices.Midi2` aus NuGet kommt, nicht aus dem
-Windows SDK:
-
-1. Die NuGet-Pakete `Windows.Devices.Midi2` (winmd) und
-   `Microsoft.Windows.CppWinRT` 3.x (`cppwinrt.exe`) holen.
-2. Die Projektion samt dem referenzierten Windows SDK erzeugen:
-
-   ```powershell
-   cppwinrt -input <package>\ref\native\Windows.Devices.Midi2.winmd `
-     -reference sdk -output third_party\midi2
-   ```
-
-3. In der `pubspec.yaml` der App einschalten:
-
-   ```yaml
-   hooks:
-     user_defines:
-       aud_midi_windows:
-         midi2: true
-         midi2_include: third_party/midi2
-   ```
-
-Zur Laufzeit fragt der Shim `MidiApi` (`try_get_activation_factory`),
-`EnsureServiceAvailable` und den API-Modus ab; ohne sie meldet er nur
-Byte-Ports. Wo die API noch nicht zu Windows gehört, muss
-`Windows.Devices.Midi2.dll` des Pakets (`runtimes\win-<arch>\native`)
-neben der ausführbaren Datei liegen. Windows MIDI Services vor dem
-Release vom November 2026 kann beim Abbau eines virtuellen Geräts hängen
-(microsoft/MIDI#1047).
-
-### Berechtigungen und Paketierung
-
-- Unpaketierte Apps brauchen nichts.
-- MSIX: `<DeviceCapability Name="bluetooth" />` für BLE-MIDI sowie
-  `<Capability Name="internetClient" />` und
-  `<Capability Name="privateNetworkClientServer" />` für
-  Netzwerk-Sessions; die Firewall fragt beim ersten Mal nach UDP
-  5004/5005.
-
-### Neu erzeugen
-
-```bash
-dart run ffigen --config ffigen.yaml  # Bindings von src/aud_midi_windows.h
-tool/test_native_core.sh              # nativer Kerntest, prüft die Goldens
-tool/test_native_core.sh --update     # schreibt test/goldens neu
-```
-
-Siehe den Plan in [aud_midi_pm](https://github.com/audmidi/aud_midi_pm/blob/main/doc/2026-Q4/tickets/2026-10-06-aud_midi_01-initial-midi-implementation.md).
-
-## Installation
-
-```bash
-dart pub add aud_midi_windows
-```
-
-## Code-Beispiele
-
-Jeden Eingang öffnen und, wo Windows MIDI Services virtuelle Geräte anbietet,
-eine MIDI-2.0-Note auf einem virtuellen Port spielen; läuft unter Windows:
-
-```dart
-import 'package:aud_midi_core/aud_midi_core.dart';
-import 'package:aud_midi_standard/aud_midi_standard.dart';
-import 'package:aud_midi_windows/aud_midi_windows.dart';
-
-Future<void> main() async {
-  final backend = WindowsMidiBackend();
-  await backend.start(_PrintingHost());
-
-  await Future.wait([
-    for (final port in backend.ports)
-      if (port.isInput) backend.openPort(port.id),
-  ]);
-
-  final source = await backend.virtualPorts?.create(
-    MidiVirtualPortSpec(
-      name: 'aud_midi_windows example',
-      direction: MidiDirection.output,
-      protocol: MidiProtocol.midi2,
-    ),
-  );
-  if (source != null) {
-    const noteOn = MidiNoteOn2(
-      channel: 0,
-      note: MidiNoteNumbers.c4,
-      velocity: 0xc800,
-    );
-    await backend.send(
-      source.id,
-      MidiUmpPacket(
-        words: UmpEncoder.encode(noteOn).expand((ump) => ump.words),
-        time: const MidiSystemClock().now(),
-      ),
-    );
-  }
-  await backend.stop();
-}
-
-final class _PrintingHost implements MidiBackendHost {
-  @override
-  final MidiClock clock = const MidiSystemClock();
-
-  @override
-  void portsChanged(List<MidiPortEvent> events) => events.forEach(print);
-
-  @override
-  void received(MidiPortId port, MidiPacket packet) => print('$port $packet');
-
-  @override
-  void diagnostic(MidiDiagnostic diagnostic) => print(diagnostic);
-}
-```
-
-Das vollständige Beispiel, das auch die Ports ausgibt, steht in
-[example/aud_midi_windows_example.dart](example/aud_midi_windows_example.dart).
-
-## Funktionsweise
+Der Shim:
 
 - `src/aud_midi_windows.h`: eine schlichte C-API mit opaken Handles;
   Ergebnisse sind HRESULTs, Events und Daten verlassen den Shim als
@@ -231,6 +243,57 @@ Das vollständige Beispiel, das auch die Ports ausgibt, steht in
 - `src/aud_midi_windows_core.h`: die portablen Teile, nativ getestet.
 - Die Dart-Seite dekodiert die Puffer und enthält die gesamte Logik.
 
+## Status
+
+Vor 1.0 — die API kann sich zwischen Minor-Versionen ändern.
+
+Implementiert; **noch nicht auf Windows gebaut oder ausgeführt**. Die
+gesamte Dart-Logik ist auf der Dart-VM getestet, der portable Teil des
+Shims auf macOS; der WinRT-Teil ist gegen die Referenz des Windows SDK und
+die IDL von Windows MIDI Services geprüft, aber nie gegen die echten
+Header kompiliert.
+
+Wie es geprüft ist:
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| Dart-Unit-Tests, macOS-VM | 100 % Zeilenabdeckung je Datei aus ihrem eigenen Test |
+| Portabler Shim-Kern (`tool/test_native_core.sh`) | Ringpuffer, Event-Queue, Callback-Gate, Worker, BLE-Filter, Uhr-Rechnung, MIDI-Zerlegung; ASan/UBSan und TSan sauber |
+| Byteformat C++ ↔ Dart | Golden-Dateien schreibt der C++-Test, die Dart-Tests dekodieren sie; die Spezifikation virtueller Geräte umgekehrt |
+| WinRT-Shim | kompiliert mit `-Wall -Wextra -Wconversion -Werror` gegen Ersatz-Header der benutzten Projektion (findet Fehler im Shim, keine API-Abweichungen) |
+| Hook | baut nichts für macOS, Linux, Android und iOS |
+| AOT-Kompilierung (`test/aot/aot_compile_test.dart`) | `dart compile aot-snapshot` des Backends und eines erst bei Bedarf erzeugten Advertisers gelingt; schützt Release-Builds für andere Plattformen vor „Class with illegal cid“ |
+
 ## Mitwirken
 
 Siehe [doc/guides/develop-guide.md](doc/guides/develop-guide.md).
+
+### Testen unter Windows
+
+Mit den Build-Voraussetzungen von oben:
+
+```powershell
+dart test
+```
+
+Tests nur für Windows:
+
+- `test/shim/windows_midi_ffi_shim_test.dart`: Kontext, Uhr, jeder Port
+  geöffnet und geschlossen, UMP-Loopback über die Diagnose-Loopback-
+  Endpoints (Midi2), Byte-Loopback über einen Treiber wie loopMIDI, eine
+  Note auf dem Microsoft GS Wavetable Synth (Smoke-Test).
+- `test/advertiser/windows_dns_sd_ffi_api_test.dart`: registriert und
+  entfernt `_apple-midi._udp`- und `_midi2._udp`-Dienste.
+- `test/hook/build_test.dart`: der Hook liefert den Shim.
+
+### Bindings neu erzeugen
+
+```bash
+dart run ffigen --config ffigen.yaml  # bindings of src/aud_midi_windows.h
+tool/test_native_core.sh              # native core test, checks the goldens
+tool/test_native_core.sh --update     # rewrites test/goldens
+```
+
+## Lizenz
+
+MIT — siehe [LICENSE](LICENSE).
