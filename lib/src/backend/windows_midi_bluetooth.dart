@@ -157,9 +157,8 @@ final class WindowsMidiBluetooth implements MidiBluetoothBackend {
   /// hex pairs separated by colons, e.g. `c0:a1:b2:c3:d4:e5`.
   static String addressText(int address) {
     final hex = address.toRadixString(16).padLeft(12, '0');
-    return [
-      for (var i = 0; i < hex.length; i += 2) hex.substring(i, i + 2),
-    ].join(':');
+    return [for (var i = 0; i < hex.length; i += 2) hex.substring(i, i + 2)]
+        .join(':');
   }
 
   /// Parses a peripheral id of [addressText], with or without separators.
