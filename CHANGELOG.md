@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Upgrade the dependencies
+- Require Flutter 3.50 and Dart 3.14, build the DNA
+
 ## 0.2.0 - 2026-10-28
 
 ### Changed
@@ -23,6 +30,7 @@
 - Upgrade aud_midi_standard to 0.2.0
 
 - Lift the lock file to the newest resolvable versions
+
 
 ## 0.1.3 - 2026-10-24
 
